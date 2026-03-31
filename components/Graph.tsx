@@ -33,14 +33,15 @@ const HISTORY_LENGTH = 20000; // Increased to accommodate entire race
 
 // Initial definition, now used to seed state
 const AVAILABLE_METRICS = [
-    { key: 'speed', label: 'Speed', unit: 'km/h', min: 0, max: 350, defaultThreshold: 310, color: '#ec4899', icon: Zap },
-    { key: 'rpm', label: 'RPM', unit: 'RPM', min: 0, max: 15000, defaultThreshold: 12500, color: '#3b82f6', icon: Gauge },
+    { key: 'speed', label: 'Speed', unit: 'km/h', min: 0, max: 350, defaultThreshold: 250, color: '#ec4899', icon: Zap },
+    { key: 'rpm', label: 'RPM', unit: 'RPM', min: 0, max: 10000, defaultThreshold: 8500, color: '#3b82f6', icon: Gauge },
+    { key: 'fuelFlow', label: 'Fuel Flow', unit: 'kg/h', min: 0, max: 120, defaultThreshold: 95, color: '#f97316', icon: Droplets },
     { key: 'throttle', label: 'Throttle', unit: '%', min: 0, max: 100, defaultThreshold: 95, color: '#a855f7', icon: Zap },
-    { key: 'fuelPressure', label: 'Fuel Pressure', unit: 'bar', min: 0, max: 10, defaultThreshold: 6, color: '#f97316', icon: Droplets },
-    { key: 'ignitionTiming', label: 'Ignition Timing', unit: '°', min: -10, max: 50, defaultThreshold: 40, color: '#06b6d4', icon: Activity },
-    { key: 'lambda', label: 'Lambda', unit: 'λ', min: 0.7, max: 1.3, defaultThreshold: 0.95, color: '#eab308', icon: Activity },
+    { key: 'fuelPressure', label: 'Fuel Pressure', unit: 'bar', min: 0, max: 10, defaultThreshold: 4.8, color: '#f97316', icon: Droplets },
+    { key: 'ignitionTiming', label: 'Ignition Timing', unit: '°', min: -10, max: 50, defaultThreshold: 35, color: '#06b6d4', icon: Activity },
+    { key: 'lambda', label: 'Lambda', unit: 'λ', min: 0.7, max: 1.3, defaultThreshold: 1.05, color: '#eab308', icon: Activity },
     { key: 'airflow', label: 'Airflow', unit: 'g/s', min: 0, max: 500, defaultThreshold: 450, color: '#22c55e', icon: Wind },
-    { key: 'gForce', label: 'G-Force', unit: 'G', min: -3, max: 3, defaultThreshold: 2.5, color: '#ef4444', icon: Activity },
+    { key: 'gForce', label: 'G-Force', unit: 'G', min: -3, max: 3, defaultThreshold: 2.8, color: '#ef4444', icon: Activity },
     { key: 'coolantTemp', label: 'Coolant Temp', unit: '°C', min: 0, max: 150, defaultThreshold: 105, color: '#3b82f6', icon: Droplets },
     { key: 'airTemp', label: 'Air Temp', unit: '°C', min: 0, max: 100, defaultThreshold: 50, color: '#10b981', icon: Wind },
 ];
@@ -191,7 +192,7 @@ const Graph: React.FC<DashboardProps> = ({
 
   // --- DATA SYNC & PROCESSING ---
   useEffect(() => {
-      if (isPaused || telemetryData.length === 0) return;
+      if (telemetryData.length === 0) return;
 
       tickRef.current += 1;
       const currentTick = tickRef.current;
@@ -336,16 +337,33 @@ const Graph: React.FC<DashboardProps> = ({
               contDist += delta;
               snapshot[`continuousDistance_${c.id}`] = contDist;
           });
-          const newHistory = [...prev, snapshot].slice(-HISTORY_LENGTH);
+          
+          const newHistory = [...prev, snapshot];
+          let shift = 0;
+          if (newHistory.length > HISTORY_LENGTH) {
+              shift = newHistory.length - HISTORY_LENGTH;
+          }
+          const slicedHistory = newHistory.slice(-HISTORY_LENGTH);
           
           if (isLive) {
-              setPlaybackIndex(newHistory.length - 1);
+              setPlaybackIndex(slicedHistory.length - 1);
+          } else {
+              setPlaybackIndex(prevIdx => {
+                  let nextIdx = prevIdx;
+                  if (!isPaused) {
+                      nextIdx += 1;
+                  }
+                  nextIdx -= shift;
+                  if (nextIdx < 0) nextIdx = 0;
+                  if (nextIdx >= slicedHistory.length) nextIdx = slicedHistory.length - 1;
+                  return nextIdx;
+              });
           }
           
-          return newHistory;
+          return slicedHistory;
       });
 
-  }, [telemetryData, isPaused, isLive, metrics]);
+  }, [telemetryData, isLive, isPaused, metrics]);
 
   // --- HANDLERS ---
   const handleMetricUpdate = (key: string, field: keyof MetricSetting, value: any) => {
@@ -424,7 +442,6 @@ const Graph: React.FC<DashboardProps> = ({
   const togglePause = () => {
       if (isPaused) {
           setIsPaused(false);
-          setIsLive(true);
       } else {
           setIsPaused(true);
           setIsLive(false);
@@ -814,13 +831,7 @@ const Graph: React.FC<DashboardProps> = ({
                                       <div className="flex items-center gap-1">
                                           <ArrowUp className="w-3 h-3 text-isuzu-red" />
                                           <span className="text-[10px] font-mono text-zinc-300">
-                                              {Math.round(
-                                                  metric.key === 'speed' && graphConfig.speed?.gears 
-                                                      ? Math.max(...Object.values(graphConfig.speed.gears).map((g: any) => 
-                                                          (g.maxRpm * 60 * Math.PI * (graphConfig.speed.tireDiameter || 680)) / (1000000 * g.gearRatio * g.finalGear)
-                                                        ))
-                                                      : (graphConfig[metric.key]?.max ?? max)
-                                              )}
+                                              {Math.round(graphConfig[metric.key]?.max ?? max)}
                                           </span>
                                       </div>
                                       <div className="flex items-center gap-1">
@@ -987,11 +998,7 @@ const Graph: React.FC<DashboardProps> = ({
                                             height={20}
                                           />
                                           <YAxis 
-                                            domain={[metric.min, metric.key === 'speed' && graphConfig.speed?.gears 
-                                                ? Math.max(...Object.values(graphConfig.speed.gears).map((g: any) => 
-                                                    (g.maxRpm * 60 * Math.PI * (graphConfig.speed.tireDiameter || 680)) / (1000000 * g.gearRatio * g.finalGear)
-                                                  ))
-                                                : (graphConfig[metric.key]?.max ?? max)]} 
+                                            domain={[metric.min, graphConfig[metric.key]?.max ?? max]} 
                                             padding={{ top: 0, bottom: 0 }}
                                             tick={{ fill: '#6b7280', fontSize: 10, fontFamily: 'monospace', fontWeight: 500 }}
                                             tickLine={false}

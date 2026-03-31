@@ -457,7 +457,18 @@ const Administration: React.FC<AdministrationProps> = ({
                                                             <input 
                                                                 type="number" 
                                                                 value={graphConfig.speed.tireDiameter}
-                                                                onChange={(e) => setGraphConfig({...graphConfig, speed: {...graphConfig.speed, tireDiameter: Number(e.target.value)}})}
+                                                                onChange={(e) => {
+                                                                    const val = Number(e.target.value);
+                                                                    const newTireDiameter = val;
+                                                                    let overallMax = 0;
+                                                                    Object.values(graphConfig.speed.gears).forEach((g: any) => {
+                                                                        if (g.gearRatio && g.finalGear) {
+                                                                            const speed = (g.maxRpm / (g.gearRatio * g.finalGear)) * (newTireDiameter * Math.PI) * 60 / 1000000;
+                                                                            if (speed > overallMax) overallMax = speed;
+                                                                        }
+                                                                    });
+                                                                    setGraphConfig({...graphConfig, speed: {...graphConfig.speed, tireDiameter: val, max: Math.round(overallMax)}});
+                                                                }}
                                                                 className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-xs text-white outline-none focus:border-blue-500"
                                                             />
                                                         </div>
@@ -481,19 +492,52 @@ const Administration: React.FC<AdministrationProps> = ({
                                                                     <input 
                                                                         type="number" 
                                                                         value={g.maxRpm}
-                                                                        onChange={(e) => setGraphConfig({...graphConfig, speed: {...graphConfig.speed, gears: {...graphConfig.speed.gears, [gear]: {...g, maxRpm: Number(e.target.value)}}}})}
+                                                                        onChange={(e) => {
+                                                                            const val = Number(e.target.value);
+                                                                            const newGears = {...graphConfig.speed.gears, [gear]: {...g, maxRpm: val}};
+                                                                            let overallMax = 0;
+                                                                            Object.values(newGears).forEach((ng: any) => {
+                                                                                if (ng.gearRatio && ng.finalGear) {
+                                                                                    const speed = (ng.maxRpm / (ng.gearRatio * ng.finalGear)) * (graphConfig.speed.tireDiameter * Math.PI) * 60 / 1000000;
+                                                                                    if (speed > overallMax) overallMax = speed;
+                                                                                }
+                                                                            });
+                                                                            setGraphConfig({...graphConfig, speed: {...graphConfig.speed, max: Math.round(overallMax), gears: newGears}});
+                                                                        }}
                                                                         className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-xs text-white outline-none focus:border-blue-500"
                                                                     />
                                                                     <input 
                                                                         type="number" step="0.1"
                                                                         value={g.gearRatio}
-                                                                        onChange={(e) => setGraphConfig({...graphConfig, speed: {...graphConfig.speed, gears: {...graphConfig.speed.gears, [gear]: {...g, gearRatio: Number(e.target.value)}}}})}
+                                                                        onChange={(e) => {
+                                                                            const val = Number(e.target.value);
+                                                                            const newGears = {...graphConfig.speed.gears, [gear]: {...g, gearRatio: val}};
+                                                                            let overallMax = 0;
+                                                                            Object.values(newGears).forEach((ng: any) => {
+                                                                                if (ng.gearRatio && ng.finalGear) {
+                                                                                    const speed = (ng.maxRpm / (ng.gearRatio * ng.finalGear)) * (graphConfig.speed.tireDiameter * Math.PI) * 60 / 1000000;
+                                                                                    if (speed > overallMax) overallMax = speed;
+                                                                                }
+                                                                            });
+                                                                            setGraphConfig({...graphConfig, speed: {...graphConfig.speed, max: Math.round(overallMax), gears: newGears}});
+                                                                        }}
                                                                         className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-xs text-white outline-none focus:border-blue-500"
                                                                     />
                                                                     <input 
                                                                         type="number" step="0.1"
                                                                         value={g.finalGear}
-                                                                        onChange={(e) => setGraphConfig({...graphConfig, speed: {...graphConfig.speed, gears: {...graphConfig.speed.gears, [gear]: {...g, finalGear: Number(e.target.value)}}}})}
+                                                                        onChange={(e) => {
+                                                                            const val = Number(e.target.value);
+                                                                            const newGears = {...graphConfig.speed.gears, [gear]: {...g, finalGear: val}};
+                                                                            let overallMax = 0;
+                                                                            Object.values(newGears).forEach((ng: any) => {
+                                                                                if (ng.gearRatio && ng.finalGear) {
+                                                                                    const speed = (ng.maxRpm / (ng.gearRatio * ng.finalGear)) * (graphConfig.speed.tireDiameter * Math.PI) * 60 / 1000000;
+                                                                                    if (speed > overallMax) overallMax = speed;
+                                                                                }
+                                                                            });
+                                                                            setGraphConfig({...graphConfig, speed: {...graphConfig.speed, max: Math.round(overallMax), gears: newGears}});
+                                                                        }}
                                                                         className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-xs text-white outline-none focus:border-blue-500"
                                                                     />
                                                                     <div className="text-xs font-mono text-blue-400 text-center bg-black/30 border border-white/5 rounded py-1.5">

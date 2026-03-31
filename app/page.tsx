@@ -97,21 +97,21 @@ const App: React.FC = () => {
 
   // Shared Thresholds State
   const [thresholds, setThresholds] = React.useState<Thresholds>({
-      speed: 240,
-      rpm: 11500,
-      fuelFlow: 98,
-      fuelPressure: 4.5,
+      speed: 250,
+      rpm: 8500,
+      fuelFlow: 95,
+      fuelPressure: 4.8,
       throttle: 95,
-      ignitionTiming: 40,
-      airflow: 440,
-      lambda: 1.02,
+      ignitionTiming: 35,
+      airflow: 450,
+      lambda: 1.05,
       sensitivity: 8
   });
 
   // Director Graph State
   const [graphConfig, setGraphConfig] = useState<Record<string, any>>({
       speed: { 
-          max: 300, alertDelay: 2.0, warningPenalty: 5.0, refreshRate: 10,
+          max: 336, alertDelay: 2.0, warningPenalty: 5.0, refreshRate: 10,
           tireDiameter: 650,
           gears: {
               '1': { maxRpm: 9000, gearRatio: 3.5, finalGear: 4.1 },
@@ -143,8 +143,8 @@ const App: React.FC = () => {
       },
       airflow: { max: 500, alertDelay: 1.0, warningPenalty: 3.0, refreshRate: 10 },
       gForce: { max: 3, alertDelay: 1.0, warningPenalty: 3.0, refreshRate: 10 },
-      coolantTemp: { max: 110, alertDelay: 1.0, warningPenalty: 3.0, refreshRate: 10 },
-      airTemp: { max: 60, alertDelay: 1.0, warningPenalty: 3.0, refreshRate: 10 }
+      coolantTemp: { max: 150, alertDelay: 1.0, warningPenalty: 3.0, refreshRate: 10 },
+      airTemp: { max: 100, alertDelay: 1.0, warningPenalty: 3.0, refreshRate: 10 }
   });
 
   // Team Filter Logic
@@ -157,25 +157,39 @@ const App: React.FC = () => {
       const generateAllCarsTelemetry = (cars: Car[], tick: number): CarTelemetry[] => {
           return cars.map(car => {
               const t = tick + (car.id * 100);
+              
+              // To make higher rank cars have higher violations, we scale performance factor by car.id
+              // Higher car.id -> higher performance factor -> higher speed/distance (higher rank) AND higher telemetry values (more violations)
+              const performanceFactor = 0.9 + (car.id * 0.015);
+              
+              // Rare spike for normal cars (1% chance)
+              const spike = Math.random() < 0.01 ? 1.15 : 1.0;
+              const finalPf = performanceFactor * spike;
+              
+              // Higher car.id gets a distance boost to ensure they are higher rank
+              const totalDistance = (tick * 50 * performanceFactor) + (car.id * 500);
+              const currentLap = 16 + Math.floor(totalDistance / 5000);
+              const currentDistance = totalDistance % 5000;
+              
               return {
                   id: car.id,
                   number: car.number,
-                  lap: 16,
-                  speed: Math.max(0, 200 + Math.sin(t * 0.1) * 50 + (Math.random() * 5)),
-                  rpm: Math.max(0, 10000 + Math.sin(t * 0.2) * 2000),
-                  fuelFlow: Math.max(0, 90 + Math.random() * 10),
-                  fuelPressure: Math.max(0, 4.0 + Math.sin(t * 0.05) * 0.5 + (Math.random() * 0.1)),
+                  lap: currentLap,
+                  speed: Math.max(0, 150 + Math.sin(t * 0.1) * 80 * finalPf + (Math.random() * 10)),
+                  rpm: Math.max(0, 6000 + Math.sin(t * 0.2) * 2100 * finalPf + (Math.random() * 100)),
+                  fuelFlow: Math.max(0, 70 + Math.sin(t * 0.1) * 18 * finalPf + Math.random() * 5),
+                  fuelPressure: Math.max(0, 3.8 + Math.sin(t * 0.05) * 0.7 * finalPf + (Math.random() * 0.2)),
                   throttle: Math.max(0, 50 + Math.sin(t * 0.3) * 50),
-                  ignitionTiming: 20 + Math.sin(t * 0.1) * 10 + (Math.random() * 2),
-                  lambda: 0.98 + Math.random() * 0.04,
-                  airflow: Math.max(0, 400 + Math.random() * 50),
-                  gForce: Math.abs(Math.sin(t * 0.5) * 2) + Math.random() * 0.5,
-                  gForceLat: Math.sin(t * 0.7) * 2.5 + (Math.random() - 0.5) * 0.5,
-                  gForceLon: Math.cos(t * 0.5) * 1.5 + (Math.random() - 0.5) * 0.5,
-                  coolantTemp: 90 + Math.sin(t * 0.01) * 10 + Math.random() * 2,
+                  ignitionTiming: 20 + Math.sin(t * 0.1) * 12 * finalPf + (Math.random() * 2),
+                  lambda: 0.98 + (car.id * 0.002) + Math.random() * 0.04 * spike,
+                  airflow: Math.max(0, 300 + Math.sin(t * 0.2) * 120 * finalPf + Math.random() * 20),
+                  gForce: Math.abs(Math.sin(t * 0.5) * 2.3 * finalPf) + Math.random() * 0.3,
+                  gForceLat: Math.sin(t * 0.7) * 2.3 * finalPf + (Math.random() - 0.5) * 0.5,
+                  gForceLon: Math.cos(t * 0.5) * 1.3 * finalPf + (Math.random() - 0.5) * 0.5,
+                  coolantTemp: 85 + Math.sin(t * 0.01) * 16 * finalPf + Math.random() * 2,
                   airTemp: 30 + Math.sin(t * 0.02) * 5 + Math.random(),
-                  distance: (tick * 50) % 5000,
-                  lapProgress: (tick * 5) % 100,
+                  distance: currentDistance,
+                  lapProgress: (currentDistance / 5000) * 100,
               };
           });
       };

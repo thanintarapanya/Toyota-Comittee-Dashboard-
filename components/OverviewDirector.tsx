@@ -53,9 +53,11 @@ const Overview: React.FC<TelemetryProps> = ({ cars: initialCars, drivers, teleme
     const [sortConfig, setSortConfig] = useState<{
         key: 'VIOLATION' | 'NUMBER' | 'RANKING';
         order: 'ASC' | 'DESC';
-    }>({ key: 'RANKING', order: 'ASC' });
+    }>({ key: 'VIOLATION', order: 'DESC' });
 
     const breachStateRef = useRef<Record<string, boolean>>({});
+    const lastScoreRef = useRef<Record<number, number>>({});
+    const flashUntilRef = useRef<Record<number, number>>({});
 
     // --- Data Aggregation Logic with Dynamic Anomaly Detection ---
     useEffect(() => {
@@ -214,8 +216,12 @@ const Overview: React.FC<TelemetryProps> = ({ cars: initialCars, drivers, teleme
 
         const sensitivityFactor = 1 + (thresholds.sensitivity / 100);
 
-        // Calculate Ranking based on distance (descending)
-        const rankedByDistance = [...telemetryData].sort((a, b) => b.distance - a.distance);
+        // Calculate Ranking based on lap and distance (descending)
+        const rankedByDistance = [...telemetryData].sort((a, b) => {
+            const distA = a.lap * 5000 + a.distance;
+            const distB = b.lap * 5000 + b.distance;
+            return distB - distA;
+        });
 
         const merged = telemetryData.map(car => {
             const agg = aggregatedData[car.id];
@@ -238,15 +244,18 @@ const Overview: React.FC<TelemetryProps> = ({ cars: initialCars, drivers, teleme
             // FIX: Explicitly cast to number[] to handle cases where Object.values inference results in 'unknown' types during addition
             const suspicionScore = (Object.values(violations) as number[]).reduce((a, b) => a + b, 0);
 
-            // Live Anomaly Check for Yellow Border
-            let isAnomalous = false;
-            const metrics = ['speed', 'rpm', 'fuelFlow', 'fuelPressure', 'throttle', 'ignitionTiming', 'airflow', 'lambda'];
-            for (const metric of metrics) {
-                if (breachStateRef.current[`${car.id}-${metric}`]) {
-                    isAnomalous = true;
-                    break;
-                }
+            // Trigger alert border when a violation count is added
+            const previousScore = lastScoreRef.current[car.id] || 0;
+            if (suspicionScore > previousScore) {
+                // Flash for 2000ms when a new violation is added
+                flashUntilRef.current[car.id] = Date.now() + 2000;
+                lastScoreRef.current[car.id] = suspicionScore;
+            } else if (suspicionScore < previousScore) {
+                // Handle reset case
+                lastScoreRef.current[car.id] = suspicionScore;
             }
+
+            const isAnomalous = flashUntilRef.current[car.id] ? Date.now() < flashUntilRef.current[car.id] : false;
 
             return {
                 ...car,
@@ -256,7 +265,7 @@ const Overview: React.FC<TelemetryProps> = ({ cars: initialCars, drivers, teleme
                 stats,
                 violations,
                 suspicionScore,
-                isSuspicious: isAnomalous // Based on active breach
+                isSuspicious: isAnomalous // Based on recent violation count addition
             };
         });
 

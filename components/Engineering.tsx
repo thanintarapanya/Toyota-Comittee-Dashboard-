@@ -17,23 +17,30 @@ const getTimestamp = (offsetSeconds: number) => {
 };
 
 // Comprehensive Data Generator
-const generateHistory = (count: number) => {
+const generateHistory = (count: number, racerId: number) => {
     const data = [];
     const now = Date.now();
+    const cheaterIds = [2, 5, 8, 11, 14, 17, 20, 23, 26];
+    const isCheater = cheaterIds.includes(racerId);
+    const performanceFactor = isCheater ? 1.15 + ((racerId * 7) % 10) * 0.01 : 0.95 + ((racerId * 7) % 7) * 0.01;
+
     for (let i = count; i > 0; i--) {
         const timeOffset = i * 0.04; // 25Hz = 0.04s per step
         
+        const spike = (!isCheater && Math.random() < 0.01) ? 1.15 : 1.0;
+        const finalPf = performanceFactor * spike;
+
         // Simulating physics for G-Force
         const steering = Math.sin(timeOffset * 0.8) * 90;
-        const speed = 180 + Math.sin(timeOffset * 0.3) * 60 + (Math.random() * 2);
+        const speed = Math.max(0, 150 + Math.sin(timeOffset * 0.1) * 80 * finalPf + (Math.random() * 10));
         const throttle = Math.max(0, Math.cos(timeOffset * 0.5) * 100);
         const brake = Math.max(0, -Math.cos(timeOffset * 0.5) * 80);
 
         // Simple mock physics for Gs
         // Lat G relates to steering angle * speed (simplified)
-        const gLat = (steering / 90) * (speed / 100) * 1.5 + (Math.random() * 0.1 - 0.05);
+        const gLat = (steering / 90) * (speed / 100) * 1.5 * finalPf + (Math.random() * 0.1 - 0.05);
         // Long G relates to throttle (+) and brake (-)
-        const gLong = (throttle / 100) * 0.8 - (brake / 100) * 1.2 + (Math.random() * 0.1 - 0.05);
+        const gLong = (throttle / 100) * 0.8 * finalPf - (brake / 100) * 1.2 + (Math.random() * 0.1 - 0.05);
         
         // Heading (0-360) simulating a track loop
         const heading = (Math.abs(Math.sin(timeOffset * 0.1)) * 360);
@@ -60,25 +67,26 @@ const generateHistory = (count: number) => {
             heading,
 
             // Engine
-            rpm: 4000 + Math.abs(Math.sin(timeOffset * 1.5)) * 3000 + (Math.random() * 100),
+            rpm: Math.max(0, 6000 + Math.sin(timeOffset * 0.2) * 2100 * finalPf + (Math.random() * 100)),
             speed, // Added speed
-            oilTemp: 110 + Math.sin(timeOffset * 0.1) * 5,
+            fuelFlow: Math.max(0, 70 + Math.sin(timeOffset * 0.1) * 18 * finalPf + Math.random() * 5),
+            oilTemp: 85 + Math.sin(timeOffset * 0.01) * 16 * finalPf + Math.random() * 2,
             fuel: Math.max(0, 100 - (timeOffset * 0.05)), // Fuel consumption simulation
-            lambda: 0.98 + Math.random() * 0.04, // Lambda sensor data
-            boost: 1.5 + Math.sin(timeOffset * 0.5) * 0.5, // Turbo Boost (bar)
+            lambda: isCheater ? 1.02 + Math.random() * 0.06 : 0.98 + Math.random() * 0.04 * spike, // Lambda sensor data
+            boost: 1.5 + Math.sin(timeOffset * 0.5) * 0.5 * finalPf, // Turbo Boost (bar)
             
             // Environment
-            airTemp: 38 + Math.random() * 0.1,
+            airTemp: 30 + Math.sin(timeOffset * 0.02) * 5 + Math.random(),
             windSpeed: 12 + Math.sin(timeOffset * 0.05) * 5, // km/h
             windDir: 'NE',
             humidity: 75 + Math.random() * 0.5,
             pressure: 1013 + Math.sin(timeOffset * 0.01) * 2,
             
             // Tires (Temp & Pressure)
-            flTemp: 104 + Math.sin(timeOffset * 0.1) * 5,
-            frTemp: 105 + Math.cos(timeOffset * 0.12) * 5,
-            rlTemp: 113 + Math.sin(timeOffset * 0.15) * 4,
-            rrTemp: 115 + Math.cos(timeOffset * 0.18) * 4,
+            flTemp: 104 + Math.sin(timeOffset * 0.1) * 5 * finalPf,
+            frTemp: 105 + Math.cos(timeOffset * 0.12) * 5 * finalPf,
+            rlTemp: 113 + Math.sin(timeOffset * 0.15) * 4 * finalPf,
+            rrTemp: 115 + Math.cos(timeOffset * 0.18) * 4 * finalPf,
             
             flPress: 1.2 + Math.random() * 0.01,
             frPress: 1.1 + Math.random() * 0.01,
@@ -403,10 +411,15 @@ const Engineering: React.FC<TelemetryProps> = ({ cars, drivers, setFiles, layout
   const [rivalList, setRivalList] = useState<string[]>([]);
   
   // Data State
-  const [history, setHistory] = useState<any[]>(generateHistory(120)); 
+  const [history, setHistory] = useState<any[]>(() => generateHistory(120, 1)); 
   const [isPaused, setIsPaused] = useState(false);
   const [playbackIndex, setPlaybackIndex] = useState<number>(119); 
   const tickRef = useRef(0);
+
+  useEffect(() => {
+      setHistory(generateHistory(120, activeRacerId));
+      setPlaybackIndex(119);
+  }, [activeRacerId]);
   const [graphType, setGraphType] = useState<'line' | 'scatter'>('line');
   const [maximizedSection, setMaximizedSection] = useState<string | null>(null);
   
@@ -488,19 +501,23 @@ const Engineering: React.FC<TelemetryProps> = ({ cars, drivers, setFiles, layout
             setHistory(prev => {
                 const now = new Date();
                 const timeString = now.toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                tickRef.current += 0.01;
+                tickRef.current += 0.1;
                 const t = tickRef.current;
                 
                 const lastPoint = prev[prev.length - 1];
                 
+                const performanceFactor = 0.9 + (activeRacerId * 0.015);
+                const spike = Math.random() < 0.01 ? 1.15 : 1.0;
+                const finalPf = performanceFactor * spike;
+
                 // Simulating physics for G-Force
                 const steering = Math.sin(t * 0.8) * 90;
-                const speed = 180 + Math.sin(t * 0.3) * 60 + (Math.random() * 2);
+                const speed = Math.max(0, 150 + Math.sin(t * 0.1) * 80 * finalPf + (Math.random() * 10));
                 const throttle = Math.max(0, Math.cos(t * 0.5) * 100);
                 const brake = Math.max(0, -Math.cos(t * 0.5) * 80);
 
-                const gLat = (steering / 90) * (speed / 100) * 1.5 + (Math.random() * 0.1 - 0.05);
-                const gLong = (throttle / 100) * 0.8 - (brake / 100) * 1.2 + (Math.random() * 0.1 - 0.05);
+                const gLat = (steering / 90) * (speed / 100) * 1.5 * finalPf + (Math.random() * 0.1 - 0.05);
+                const gLong = (throttle / 100) * 0.8 * finalPf - (brake / 100) * 1.2 + (Math.random() * 0.1 - 0.05);
                 const heading = (Math.abs(Math.sin(t * 0.1)) * 360);
 
                 const newPoint = {
@@ -516,20 +533,21 @@ const Engineering: React.FC<TelemetryProps> = ({ cars, drivers, setFiles, layout
                     gLat,
                     gLong,
                     heading,
-                    rpm: 4000 + Math.abs(Math.sin(t * 1.5)) * 3000 + (Math.random() * 100),
+                    rpm: Math.max(0, 6000 + Math.sin(t * 0.2) * 2100 * finalPf + (Math.random() * 100)),
                     speed,
-                    oilTemp: 110 + Math.sin(t * 0.1) * 5,
-                    lambda: 0.98 + Math.sin(t * 0.2) * 0.03 + (Math.random() * 0.01),
-                    airTemp: 38.5 + (Math.sin(t * 0.05) * 0.5),
+                    fuelFlow: Math.max(0, 70 + Math.sin(t * 0.1) * 18 * finalPf + Math.random() * 5),
+                    oilTemp: 85 + Math.sin(t * 0.01) * 16 * finalPf + Math.random() * 2,
+                    lambda: 0.98 + (activeRacerId * 0.002) + Math.random() * 0.04 * spike,
+                    airTemp: 30 + Math.sin(t * 0.02) * 5 + Math.random(),
                     humidity: 75 + Math.sin(t * 0.1) * 2,
                     windSpeed: 12 + Math.sin(t * 0.05) * 5,
                     pressure: 1013 + Math.sin(t * 0.01) * 1,
                     windDir: 'NE',
                     fuel: Math.max(0, lastPoint.fuel ? lastPoint.fuel - 0.005 : 98),
-                    flTemp: 104 + Math.sin(t * 0.1) * 5,
-                    frTemp: 105 + Math.cos(t * 0.12) * 5,
-                    rlTemp: 113 + Math.sin(t * 0.15) * 4,
-                    rrTemp: 115 + Math.cos(t * 0.18) * 4,
+                    flTemp: 104 + Math.sin(t * 0.1) * 5 * finalPf,
+                    frTemp: 105 + Math.cos(t * 0.12) * 5 * finalPf,
+                    rlTemp: 113 + Math.sin(t * 0.15) * 4 * finalPf,
+                    rrTemp: 115 + Math.cos(t * 0.18) * 4 * finalPf,
                     flPress: 1.2, frPress: 1.1, rlPress: 1.2, rrPress: 1.3,
                     flBrake: Math.max(200, 650 + Math.sin(t*0.5)*300),
                     frBrake: Math.max(200, 500 + Math.sin(t*0.55)*250),
@@ -545,7 +563,7 @@ const Engineering: React.FC<TelemetryProps> = ({ cars, drivers, setFiles, layout
                 return newHistory;
             });
         }
-    }, 10);
+    }, 100);
     return () => clearInterval(interval);
   }, [isPaused, activeRacerId]);
 
@@ -669,7 +687,13 @@ const Engineering: React.FC<TelemetryProps> = ({ cars, drivers, setFiles, layout
   const renderWidgetContent = (type: WidgetType) => {
       switch(type) {
           case 'RACE_STATUS':
-              const rank = activeRacers.findIndex(r => r.id === activeRacerId) + 1;
+              const sortedRacers = [...activeRacers].sort((a, b) => {
+                  const cheaterIds = [2, 5, 8, 11, 14, 17, 20, 23, 26];
+                  const perfA = cheaterIds.includes(a.id) ? 1.15 + ((a.id * 7) % 10) * 0.01 : 0.95 + ((a.id * 7) % 7) * 0.01;
+                  const perfB = cheaterIds.includes(b.id) ? 1.15 + ((b.id * 7) % 10) * 0.01 : 0.95 + ((b.id * 7) % 7) * 0.01;
+                  return perfB - perfA; // Higher performance = P1
+              });
+              const rank = sortedRacers.findIndex(r => r.id === activeRacerId) + 1;
               return (
                 <div className="glass-panel p-3 rounded-xl border-l-4 border-l-isuzu-red h-full flex flex-col relative overflow-hidden">
                     <div className="flex justify-between items-center z-10">

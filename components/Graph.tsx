@@ -1340,20 +1340,42 @@ const Graph: React.FC<DashboardProps> = ({
 
                               // Save file
                               if (setFiles) {
-                                  const fileName = `${tempEventName || 'Telemetry'}_${tempSessionType || 'Session'}_${new Date().toLocaleTimeString().replace(/:/g, '-')}.csv`;
-                                  setFiles(prev => [
-                                      {
-                                          id: `rec-${Date.now()}`,
-                                          parentId: 'root',
-                                          name: fileName,
-                                          type: 'csv',
-                                          size: '1.2 MB',
-                                          date: tempEventDate || new Date().toLocaleDateString(),
-                                          author: 'Director',
-                                          tags: ['telemetry', tempSessionType, tempRaceSeries].filter(Boolean) as string[]
-                                      },
-                                      ...prev
-                                  ]);
+                                  const folderName = `${tempEventName || 'Event'}_${tempSessionType || 'Session'}_${tempRaceSeries || 'Series'}_${tempEventDate || 'Date'}`;
+                                  const folderId = `folder-${Date.now()}`;
+                                  
+                                  setFiles(prev => {
+                                      const existingFolder = prev.find(f => f.type === 'folder' && f.name === folderName && f.parentId === 'root');
+                                      const targetFolderId = existingFolder ? existingFolder.id : folderId;
+                                      
+                                      const newFiles = [...prev];
+                                      
+                                      if (!existingFolder) {
+                                          newFiles.push({
+                                              id: targetFolderId,
+                                              parentId: 'root',
+                                              name: folderName,
+                                              type: 'folder',
+                                              date: tempEventDate || new Date().toLocaleDateString()
+                                          } as any);
+                                      }
+                                      
+                                      const maxLap = telemetryData.length > 0 ? Math.max(...telemetryData.map(c => c.lap)) : 1;
+                                      
+                                      for (let i = maxLap; i >= 1; i--) {
+                                          newFiles.unshift({
+                                              id: `rec-${Date.now()}-lap${i}`,
+                                              parentId: targetFolderId,
+                                              name: `Lap${i}_${tempSessionType || 'Session'}.csv`,
+                                              type: 'csv',
+                                              size: '1.2 MB',
+                                              date: tempEventDate || new Date().toLocaleDateString(),
+                                              author: 'Director',
+                                              tags: ['telemetry', tempSessionType, tempRaceSeries, `Lap ${i}`].filter(Boolean) as string[]
+                                          } as any);
+                                      }
+                                      
+                                      return newFiles;
+                                  });
                               }
                               
                               setIsRecording(false);

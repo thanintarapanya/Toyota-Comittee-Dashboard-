@@ -52,7 +52,7 @@ const DRIVER_NAMES = [
 ];
 
 const App: React.FC = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentView, setCurrentView] = useState<View>(View.OVERVIEW_DIRECTOR);
 
   // Event & Track State

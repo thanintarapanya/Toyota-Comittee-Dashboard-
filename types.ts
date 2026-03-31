@@ -101,6 +101,7 @@ export interface FileItem {
     type: 'folder' | 'csv' | 'mp4';
     size?: string;
     date: string;
+    content?: string;
 }
 
 export interface Thresholds {

@@ -1,5 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Folder, FileText, Video, ChevronRight, Download, Upload, Search, Scissors, ClipboardPaste, Film, FileSpreadsheet, Trash2, Edit2, Lock, CheckSquare, Square, X } from 'lucide-react';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import { FileItem } from '../types';
 
 interface FilesProps {
@@ -64,11 +66,45 @@ const FileAndVideo: React.FC<FilesProps> = ({ files, setFiles }) => {
     };
 
     // Export Zip
-    const handleExport = () => {
+    const handleExport = async () => {
         const count = selectedIds.size;
         if (count === 0) return;
-        alert(`Compressing ${count} items into archive.zip... Download starting.`);
-        setSelectedIds(new Set());
+        
+        const zip = new JSZip();
+        
+        // Helper to add files/folders to zip recursively
+        const addToZip = (itemIds: Set<string>, currentZipFolder: JSZip) => {
+            itemIds.forEach(id => {
+                const item = files.find(f => f.id === id);
+                if (!item) return;
+                
+                if (item.type === 'folder') {
+                    const newZipFolder = currentZipFolder.folder(item.name);
+                    if (newZipFolder) {
+                        const childrenIds = new Set(files.filter(f => f.parentId === item.id).map(f => f.id));
+                        addToZip(childrenIds, newZipFolder);
+                    }
+                } else if (item.type === 'csv') {
+                    // Use the content if available, otherwise create a mock content
+                    const content = item.content || 'Timestamp,Lap,Car Number,Parameter,Recorded Value,Threshold Limit,Difference,Violation Level\nNo data available';
+                    currentZipFolder.file(item.name, content);
+                } else {
+                    // For mp4 or other types, just add a dummy text file for now
+                    currentZipFolder.file(`${item.name}.txt`, `Dummy content for ${item.name}`);
+                }
+            });
+        };
+        
+        addToZip(selectedIds, zip);
+        
+        try {
+            const content = await zip.generateAsync({ type: 'blob' });
+            saveAs(content, `Export_${new Date().getTime()}.zip`);
+            setSelectedIds(new Set());
+        } catch (error) {
+            console.error("Error generating zip file:", error);
+            alert("Failed to generate zip file.");
+        }
     };
 
     // Rename

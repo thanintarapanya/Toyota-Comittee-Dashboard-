@@ -155,6 +155,9 @@ const Graph: React.FC<DashboardProps> = ({
   const breachTracker = useRef<Record<string, number>>({});
   const alertGeneratedTracker = useRef<Record<string, boolean>>({});
 
+  // Store recorded violations for CSV export
+  const recordedViolations = useRef<any[]>([]);
+
   const [raceStatus, setRaceStatus] = useState<'GREEN' | 'YELLOW' | 'SC' | 'RED'>('GREEN');
   const [isPaused, setIsPaused] = useState(false);
   const [expandedAlerts, setExpandedAlerts] = useState(false);
@@ -283,6 +286,20 @@ const Graph: React.FC<DashboardProps> = ({
                           curve: `T${Math.floor(Math.random() * 12) + 1}`
                       };
                       setAlerts(prev => [newAlert, ...prev]);
+
+                      // If recording, store the violation
+                      if (isRecording) {
+                          recordedViolations.current.push({
+                              timestamp: timeStr,
+                              lap: car.lap,
+                              carNumber: car.number,
+                              parameter: mConfig.label,
+                              recordedValue: val.toFixed(2),
+                              thresholdLimit: currentThreshold.toFixed(2),
+                              difference: (val - currentThreshold).toFixed(2),
+                              violationLevel: 'CRITICAL'
+                          });
+                      }
                   }
               });
           }
@@ -1362,21 +1379,35 @@ const Graph: React.FC<DashboardProps> = ({
                                       const maxLap = telemetryData.length > 0 ? Math.max(...telemetryData.map(c => c.lap)) : 1;
                                       
                                       for (let i = maxLap; i >= 1; i--) {
+                                          // Filter violations for this lap
+                                          const lapViolations = recordedViolations.current.filter(v => v.lap === i);
+                                          
+                                          // Generate CSV content
+                                          const csvHeader = 'Timestamp,Lap,Car Number,Parameter,Recorded Value,Threshold Limit,Difference,Violation Level\n';
+                                          const csvRows = lapViolations.map(v => 
+                                              `${v.timestamp},${v.lap},${v.carNumber},${v.parameter},${v.recordedValue},${v.thresholdLimit},${v.difference},${v.violationLevel}`
+                                          ).join('\n');
+                                          const csvContent = csvHeader + csvRows;
+
                                           newFiles.unshift({
                                               id: `rec-${Date.now()}-lap${i}`,
                                               parentId: targetFolderId,
                                               name: `Lap${i}_${tempSessionType || 'Session'}.csv`,
                                               type: 'csv',
-                                              size: '1.2 MB',
+                                              size: `${(csvContent.length / 1024).toFixed(2)} KB`,
                                               date: tempEventDate || new Date().toLocaleDateString(),
                                               author: 'Director',
-                                              tags: ['telemetry', tempSessionType, tempRaceSeries, `Lap ${i}`].filter(Boolean) as string[]
+                                              tags: ['telemetry', tempSessionType, tempRaceSeries, `Lap ${i}`].filter(Boolean) as string[],
+                                              content: csvContent
                                           } as any);
                                       }
                                       
                                       return newFiles;
                                   });
                               }
+                              
+                              // Clear recorded violations
+                              recordedViolations.current = [];
                               
                               setIsRecording(false);
                               setShowEndRecordPopup(false);

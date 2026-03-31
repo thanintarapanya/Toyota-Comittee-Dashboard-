@@ -125,9 +125,9 @@ const Overview: React.FC<TelemetryProps> = ({ cars: initialCars, drivers, teleme
                 // Update Violations - USING GLOBAL THRESHOLDS
                 const newViolations = { ...prevCar.violations };
                 
-                const checkBreach = (metric: string, val: number, threshold: number) => {
+                const checkBreach = (metric: string, val: number, threshold: number, ignoreAlert: boolean = false) => {
                     const key = `${car.id}-${metric}`;
-                    if (val > threshold) {
+                    if (!ignoreAlert && val > threshold) {
                         if (!breachStateRef.current[key]) {
                             breachStateRef.current[key] = true;
                             // @ts-ignore
@@ -141,17 +141,34 @@ const Overview: React.FC<TelemetryProps> = ({ cars: initialCars, drivers, teleme
                 checkBreach('speed', car.speed, thresholds.speed);
                 checkBreach('rpm', car.rpm, thresholds.rpm);
                 checkBreach('fuelFlow', car.fuelFlow, thresholds.fuelFlow);
-                checkBreach('fuelPressure', car.fuelPressure, thresholds.fuelPressure);
+                
+                let fuelPressureIgnore = false;
+                if (graphConfig?.fuelPressure?.filter) {
+                    const filter = graphConfig.fuelPressure.filter;
+                    const paramVal = (car as any)[filter.parameter] || 0;
+                    if (filter.condition === 'greater' && paramVal <= filter.value) fuelPressureIgnore = true;
+                    if (filter.condition === 'equal_lower' && paramVal > filter.value) fuelPressureIgnore = true;
+                }
+                checkBreach('fuelPressure', car.fuelPressure, thresholds.fuelPressure, fuelPressureIgnore);
+                
                 checkBreach('throttle', car.throttle, thresholds.throttle);
                 checkBreach('ignitionTiming', car.ignitionTiming, thresholds.ignitionTiming);
                 checkBreach('airflow', car.airflow, thresholds.airflow);
                 
                 let lambdaThreshold = thresholds.lambda;
+                let lambdaIgnore = false;
                 if (graphConfig?.lambda?.thresholds) {
                     const matched = graphConfig.lambda.thresholds.find((t: any) => car.throttle >= t.minThrottle && car.throttle <= t.maxThrottle);
                     if (matched) lambdaThreshold = matched.value;
                 }
-                checkBreach('lambda', car.lambda, lambdaThreshold);
+                if (graphConfig?.lambda?.filters) {
+                    for (const filter of graphConfig.lambda.filters) {
+                        const paramVal = (car as any)[filter.parameter] || 0;
+                        if (filter.condition === 'greater' && paramVal <= filter.value) lambdaIgnore = true;
+                        if (filter.condition === 'equal_lower' && paramVal > filter.value) lambdaIgnore = true;
+                    }
+                }
+                checkBreach('lambda', car.lambda, lambdaThreshold, lambdaIgnore);
                 
                 next[car.id] = {
                     stats: newStats,
@@ -221,16 +238,14 @@ const Overview: React.FC<TelemetryProps> = ({ cars: initialCars, drivers, teleme
             // FIX: Explicitly cast to number[] to handle cases where Object.values inference results in 'unknown' types during addition
             const suspicionScore = (Object.values(violations) as number[]).reduce((a, b) => a + b, 0);
 
-            // Live Anomaly Check for Red Border
+            // Live Anomaly Check for Yellow Border
             let isAnomalous = false;
-            if (car.speed > 50) {
-                 if (car.speed > avgs.speed * sensitivityFactor) isAnomalous = true;
-                 if (car.rpm > avgs.rpm * sensitivityFactor) isAnomalous = true;
-                 if (car.fuelFlow > avgs.fuelFlow * sensitivityFactor) isAnomalous = true;
-                 if (car.fuelPressure > avgs.fuelPressure * sensitivityFactor) isAnomalous = true;
-                 if (car.throttle > avgs.throttle * sensitivityFactor) isAnomalous = true;
-                 if (car.ignitionTiming > avgs.ignitionTiming * sensitivityFactor) isAnomalous = true;
-                 if (car.airflow > avgs.airflow * sensitivityFactor) isAnomalous = true;
+            const metrics = ['speed', 'rpm', 'fuelFlow', 'fuelPressure', 'throttle', 'ignitionTiming', 'airflow', 'lambda'];
+            for (const metric of metrics) {
+                if (breachStateRef.current[`${car.id}-${metric}`]) {
+                    isAnomalous = true;
+                    break;
+                }
             }
 
             return {
@@ -241,7 +256,7 @@ const Overview: React.FC<TelemetryProps> = ({ cars: initialCars, drivers, teleme
                 stats,
                 violations,
                 suspicionScore,
-                isSuspicious: isAnomalous // Based on "Above Average" in real-time
+                isSuspicious: isAnomalous // Based on active breach
             };
         });
 
@@ -379,17 +394,17 @@ const Overview: React.FC<TelemetryProps> = ({ cars: initialCars, drivers, teleme
                         className={`
                             h-[120px] lg:h-[140px] 2xl:h-[160px] flex rounded-lg border transition-all duration-300 relative overflow-hidden cursor-pointer
                             ${car.isSuspicious 
-                                ? 'bg-red-500/5 border-red-500/40 shadow-[0_0_10px_rgba(239,68,68,0.05)]' 
+                                ? 'bg-isuzu-red/5 border-isuzu-red/40 shadow-[0_0_10px_rgba(255,0,0,0.05)]' 
                                 : 'bg-zinc-900/30 border-white/5 hover:border-white/20 hover:bg-zinc-900/50'
                             }
                         `}
                     >
                         {/* Alert Indicator */}
-                        {car.isSuspicious && <div className="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-bl shadow-[0_0_5px_red] animate-pulse"></div>}
+                        {car.isSuspicious && <div className="absolute top-0 right-0 w-3 h-3 bg-isuzu-red rounded-bl shadow-[0_0_5px_red] animate-pulse"></div>}
 
                         {/* LEFT: Identity (25% width) */}
                         <div className="w-16 lg:w-20 2xl:w-24 flex flex-col items-center justify-center border-r border-white/5 bg-black/20 flex-shrink-0">
-                            <span className={`text-2xl lg:text-3xl 2xl:text-4xl font-black italic tracking-tighter ${car.isSuspicious ? 'text-red-500' : 'text-zinc-600'}`}>
+                            <span className={`text-2xl lg:text-3xl 2xl:text-4xl font-black italic tracking-tighter ${car.isSuspicious ? 'text-isuzu-red' : 'text-zinc-600'}`}>
                                 {car.number}
                             </span>
                             <span className="text-[10px] lg:text-xs 2xl:text-sm font-black text-white mt-1">

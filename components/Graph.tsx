@@ -200,14 +200,14 @@ const Graph: React.FC<DashboardProps> = ({
           let status: 'OK' | 'WARN' | 'CRITICAL' = 'OK';
           const breaches: string[] = [];
 
-          for (const m of metrics) {
+          for (const m of AVAILABLE_METRICS) {
               let val = 0;
               // @ts-ignore - dynamic key access
               if (typeof car[m.key] === 'number') val = car[m.key] as number;
 
               const breachKey = `${car.id}-${m.key}`;
               
-              let currentThreshold = m.threshold;
+              let currentThreshold = thresholds ? thresholds[m.key] : m.defaultThreshold;
               let ignoreAlert = false;
 
               if (m.key === 'lambda') {
@@ -258,12 +258,12 @@ const Graph: React.FC<DashboardProps> = ({
 
           if (status === 'CRITICAL' && breaches.length > 0) {
               breaches.forEach(breach => {
-                  const mConfig = metrics.find(m => m.key === breach);
+                  const mConfig = AVAILABLE_METRICS.find(m => m.key === breach);
                   if (mConfig) {
                       // @ts-ignore
                       const val = car[breach] as number;
                       
-                      let currentThreshold = mConfig.threshold;
+                      let currentThreshold = thresholds ? thresholds[breach] : mConfig.defaultThreshold;
                       if (breach === 'lambda') {
                           const throttle = (car as any).throttle || 0;
                           const lambdaThresholds = graphConfig.lambda?.thresholds || [];
@@ -282,7 +282,7 @@ const Graph: React.FC<DashboardProps> = ({
                           lap: car.lap,
                           curve: `T${Math.floor(Math.random() * 12) + 1}`
                       };
-                      setAlerts(prev => [newAlert, ...prev].slice(0, 50));
+                      setAlerts(prev => [newAlert, ...prev]);
                   }
               });
           }
@@ -459,16 +459,43 @@ const Graph: React.FC<DashboardProps> = ({
 
   const displayCars = telemetryData.map(car => {
       // Re-evaluate status based on CURRENT settings for display purposes
-      const rpm = currentSnapshot[`rpm_${car.id}`] ?? car.rpm;
-      const fuelFlow = currentSnapshot[`fuelFlow_${car.id}`] ?? car.fuelFlow;
-      
       let status = 'OK';
-      const rpmConfig = metrics.find(m => m.key === 'rpm');
-      const fuelConfig = metrics.find(m => m.key === 'fuelFlow');
+      
+      const metricsToCheck = ['speed', 'rpm', 'fuelFlow', 'fuelPressure', 'throttle', 'ignitionTiming', 'airflow', 'lambda'];
+      
+      for (const metricKey of metricsToCheck) {
+          const val = currentSnapshot[`${metricKey}_${car.id}`] ?? (car as any)[metricKey];
+          if (val === undefined) continue;
+          
+          let currentThreshold = thresholds ? thresholds[metricKey] : (AVAILABLE_METRICS.find(m => m.key === metricKey)?.defaultThreshold || Infinity);
+          let ignoreAlert = false;
+          
+          if (metricKey === 'lambda') {
+              const throttle = currentSnapshot[`throttle_${car.id}`] ?? (car as any).throttle ?? 0;
+              const lambdaThresholds = graphConfig.lambda?.thresholds || [];
+              const matched = lambdaThresholds.find((t: any) => throttle >= t.minThrottle && throttle <= t.maxThrottle);
+              if (matched) currentThreshold = matched.value;
 
-      if (rpmConfig && rpm > rpmConfig.threshold) status = 'CRITICAL';
-      else if (fuelConfig && fuelFlow > fuelConfig.threshold) status = 'CRITICAL';
-      else if (rpmConfig && rpm > rpmConfig.threshold * 0.95) status = 'WARN';
+              const filters = graphConfig.lambda?.filters || [];
+              for (const filter of filters) {
+                  const paramVal = currentSnapshot[`${filter.parameter}_${car.id}`] ?? (car as any)[filter.parameter] ?? 0;
+                  if (filter.condition === 'greater' && paramVal <= filter.value) ignoreAlert = true;
+                  if (filter.condition === 'equal_lower' && paramVal > filter.value) ignoreAlert = true;
+              }
+          } else if (metricKey === 'fuelPressure') {
+              const filter = graphConfig.fuelPressure?.filter;
+              if (filter) {
+                  const paramVal = currentSnapshot[`${filter.parameter}_${car.id}`] ?? (car as any)[filter.parameter] ?? 0;
+                  if (filter.condition === 'greater' && paramVal <= filter.value) ignoreAlert = true;
+                  if (filter.condition === 'equal_lower' && paramVal > filter.value) ignoreAlert = true;
+              }
+          }
+          
+          if (!ignoreAlert && val > currentThreshold) {
+              status = 'CRITICAL';
+              break;
+          }
+      }
 
       return { ...car, status };
   });
@@ -499,7 +526,7 @@ const Graph: React.FC<DashboardProps> = ({
       const isSelected = selectedCarIds.includes(carId);
       const extraStyles = isSelected ? (isCompareMode ? 'ring-2 ring-offset-1 ring-offset-black z-10 scale-110' : 'ring-2 ring-white z-10 scale-110') : 'scale-100 opacity-60 hover:opacity-100';
       switch(status) {
-          case 'CRITICAL': return `${extraStyles} bg-isuzu-red text-white border-isuzu-red shadow-[0_0_10px_#ff3333] animate-pulse`;
+          case 'CRITICAL': return `${extraStyles} bg-yellow-500 text-black border-yellow-500 animate-pulse`;
           case 'WARN': return `${extraStyles} bg-yellow-500 text-black border-yellow-500`;
           default: return `${extraStyles} bg-zinc-800 text-zinc-400 border-white/5 hover:bg-zinc-700`;
       }
@@ -647,9 +674,6 @@ const Graph: React.FC<DashboardProps> = ({
                                 `}
                             >
                                 <span className="text-xs font-black leading-none">{car.number}</span>
-                                {car.status === 'CRITICAL' && (
-                                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-white rounded-full animate-ping"></div>
-                                )}
                             </button>
                           );
                       })}
@@ -820,14 +844,30 @@ const Graph: React.FC<DashboardProps> = ({
                                                           if (typeof val !== 'number') return metric.min;
                                                           
                                                           let threshold = metric.threshold;
+                                                          let ignoreAlert = false;
+
                                                           if (metric.key === 'lambda') {
                                                               const throttle = item[`throttle_${id}`] || 0;
                                                               const thresholds = graphConfig.lambda?.thresholds || [];
                                                               const activeThreshold = thresholds.find((t: any) => throttle >= t.minThrottle && throttle <= t.maxThrottle);
                                                               threshold = activeThreshold ? activeThreshold.value : metric.threshold;
+
+                                                              const filters = graphConfig.lambda?.filters || [];
+                                                              for (const filter of filters) {
+                                                                  const paramVal = item[`${filter.parameter}_${id}`] || 0;
+                                                                  if (filter.condition === 'greater' && paramVal <= filter.value) ignoreAlert = true;
+                                                                  if (filter.condition === 'equal_lower' && paramVal > filter.value) ignoreAlert = true;
+                                                              }
+                                                          } else if (metric.key === 'fuelPressure') {
+                                                              const filter = graphConfig.fuelPressure?.filter;
+                                                              if (filter) {
+                                                                  const paramVal = item[`${filter.parameter}_${id}`] || 0;
+                                                                  if (filter.condition === 'greater' && paramVal <= filter.value) ignoreAlert = true;
+                                                                  if (filter.condition === 'equal_lower' && paramVal > filter.value) ignoreAlert = true;
+                                                              }
                                                           }
                                                           
-                                                          return val > threshold ? val : metric.min;
+                                                          return (!ignoreAlert && val > threshold) ? val : metric.min;
                                                       }}
                                                       baseValue={metric.min}
                                                       stroke="none"
